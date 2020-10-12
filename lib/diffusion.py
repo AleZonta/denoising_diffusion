@@ -27,25 +27,23 @@ def make_beta_schedule(schedule, start, end, n_timestep):
 
 
 def _warmup_beta(start, end, n_timestep, warmup_frac):
-
-    betas               = end * torch.ones(n_timestep, dtype=torch.float64)
-    warmup_time         = int(n_timestep * warmup_frac)
+    betas = end * torch.ones(n_timestep, dtype=torch.float64)
+    warmup_time = int(n_timestep * warmup_frac)
     betas[:warmup_time] = torch.linspace(start, end, warmup_time, dtype=torch.float64)
 
     return betas
 
 
 def normal_kl(mean1, logvar1, mean2, logvar2):
-
     kl = 0.5 * (-1.0 + logvar2 - logvar1 + torch.exp(logvar1 - logvar2) + ((mean1 - mean2) ** 2) * torch.exp(-logvar2))
 
     return kl
 
 
 def extract(input, t, shape):
-    out     = torch.gather(input, 0, t.to(input.device))
+    out = torch.gather(input, 0, t.to(input.device))
     reshape = [shape[0]] + [1] * (len(shape) - 1)
-    out     = out.reshape(*reshape)
+    out = out.reshape(*reshape)
 
     return out
 
@@ -66,21 +64,20 @@ def approx_standard_normal_cdf(x):
 
 
 def discretized_gaussian_log_likelihood(x, *, means, log_scales):
-
     # Assumes data is integers [0, 255] rescaled to [-1, 1]
     centered_x = x - means
-    inv_stdv   = torch.exp(-log_scales)
-    plus_in    = inv_stdv * (centered_x + 1. / 255.)
-    cdf_plus   = approx_standard_normal_cdf(plus_in)
-    min_in     = inv_stdv * (centered_x - 1. / 255.)
-    cdf_min    = approx_standard_normal_cdf(min_in)
+    inv_stdv = torch.exp(-log_scales)
+    plus_in = inv_stdv * (centered_x + 1. / 255.)
+    cdf_plus = approx_standard_normal_cdf(plus_in)
+    min_in = inv_stdv * (centered_x - 1. / 255.)
+    cdf_min = approx_standard_normal_cdf(min_in)
 
-    log_cdf_plus          = torch.log(torch.clamp(cdf_plus, min=1e-12))
+    log_cdf_plus = torch.log(torch.clamp(cdf_plus, min=1e-12))
     log_one_minus_cdf_min = torch.log(torch.clamp(1 - cdf_min, min=1e-12))
-    cdf_delta             = cdf_plus - cdf_min
-    log_probs             = torch.where(x < -0.999, log_cdf_plus,
-                                        torch.where(x > 0.999, log_one_minus_cdf_min,
-                                                    torch.log(torch.clamp(cdf_delta, min=1e-12))))
+    cdf_delta = cdf_plus - cdf_min
+    log_probs = torch.where(x < -0.999, log_cdf_plus,
+                            torch.where(x > 0.999, log_one_minus_cdf_min,
+                                        torch.log(torch.clamp(cdf_delta, min=1e-12))))
 
     return log_probs
 
@@ -89,13 +86,13 @@ class GaussianDiffusion(nn.Module):
     def __init__(self, betas, model_mean_type, model_var_type, loss_type):
         super().__init__()
 
-        betas              = betas.type(torch.float64)
-        timesteps          = betas.shape[0]
+        betas = betas.type(torch.float64)
+        timesteps = betas.shape[0]
         self.num_timesteps = int(timesteps)
 
         self.model_mean_type = model_mean_type  # xprev, xstart, eps
-        self.model_var_type  = model_var_type   # learned, fixedsmall, fixedlarge
-        self.loss_type       = loss_type        # kl, mse
+        self.model_var_type = model_var_type  # learned, fixedsmall, fixedlarge
+        self.loss_type = loss_type  # kl, mse
 
         alphas = 1 - betas
         alphas_cumprod = torch.cumprod(alphas, 0)
@@ -137,9 +134,9 @@ class GaussianDiffusion(nn.Module):
                 + extract(self.sqrt_one_minus_alphas_cumprod, t, x_0.shape) * noise)
 
     def q_posterior_mean_variance(self, x_0, x_t, t):
-        mean            = (extract(self.posterior_mean_coef1, t, x_t.shape) * x_0
-                           + extract(self.posterior_mean_coef2, t, x_t.shape) * x_t)
-        var             = extract(self.posterior_variance, t, x_t.shape)
+        mean = (extract(self.posterior_mean_coef1, t, x_t.shape) * x_0
+                + extract(self.posterior_mean_coef2, t, x_t.shape) * x_t)
+        var = extract(self.posterior_variance, t, x_t.shape)
         log_var_clipped = extract(self.posterior_log_variance_clipped, t, x_t.shape)
 
         return mean, var, log_var_clipped
@@ -151,7 +148,7 @@ class GaussianDiffusion(nn.Module):
         # Learned or fixed variance?
         if self.model_var_type == 'learned':
             model_output, log_var = torch.split(model_output, 2, dim=-1)
-            var                   = torch.exp(log_var)
+            var = torch.exp(log_var)
 
         elif self.model_var_type in ['fixedsmall', 'fixedlarge']:
 
@@ -163,7 +160,7 @@ class GaussianDiffusion(nn.Module):
                 'fixedsmall': (self.posterior_variance, self.posterior_log_variance_clipped),
             }[self.model_var_type]
 
-            var     = extract(var, t, x.shape) * torch.ones_like(x)
+            var = extract(var, t, x.shape) * torch.ones_like(x)
             log_var = extract(log_var, t, x.shape) * torch.ones_like(x)
         else:
             raise NotImplementedError(self.model_var_type)
@@ -174,14 +171,14 @@ class GaussianDiffusion(nn.Module):
         if self.model_mean_type == 'xprev':
             # the model predicts x_{t-1}
             pred_x_0 = _maybe_clip(self.predict_start_from_prev(x_t=x, t=t, x_prev=model_output))
-            mean     = model_output
+            mean = model_output
         elif self.model_mean_type == 'xstart':
             # the model predicts x_0
-            pred_x0    = _maybe_clip(model_output)
+            pred_x0 = _maybe_clip(model_output)
             mean, _, _ = self.q_posterior_mean_variance(x_0=pred_x0, x_t=x, t=t)
         elif self.model_mean_type == 'eps':
             # the model predicts epsilon
-            pred_x0    = _maybe_clip(self.predict_start_from_noise(x_t=x, t=t, noise=model_output))
+            pred_x0 = _maybe_clip(self.predict_start_from_noise(x_t=x, t=t, noise=model_output))
             mean, _, _ = self.q_posterior_mean_variance(x_0=pred_x0, x_t=x, t=t)
         else:
             raise NotImplementedError(self.model_mean_type)
@@ -197,17 +194,17 @@ class GaussianDiffusion(nn.Module):
 
     def predict_start_from_prev(self, x_t, t, x_prev):
 
-        return (extract(1./self.posterior_mean_coef1, t, x_t.shape) * x_prev -
+        return (extract(1. / self.posterior_mean_coef1, t, x_t.shape) * x_prev -
                 extract(self.posterior_mean_coef2 / self.posterior_mean_coef1, t, x_t.shape) * x_t)
 
     def p_sample(self, model, x, t, noise_fn, clip_denoised=True, return_pred_x0=False):
 
         mean, _, log_var, pred_x0 = self.p_mean_variance(model, x, t, clip_denoised, return_pred_x0=True)
-        noise                     = noise_fn(x.shape, dtype=x.dtype).to(x.device)
+        noise = noise_fn(x.shape, dtype=x.dtype).to(x.device)
 
-        shape        = [x.shape[0]] + [1] * (x.ndim - 1)
+        shape = [x.shape[0]] + [1] * (x.ndim - 1)
         nonzero_mask = (1 - (t == 0).type(torch.float32)).view(*shape).to(x.device)
-        sample       = mean + nonzero_mask * torch.exp(0.5 * log_var) * noise
+        sample = mean + nonzero_mask * torch.exp(0.5 * log_var) * noise
 
         return (sample, pred_x0) if return_pred_x0 else sample
 
@@ -215,7 +212,7 @@ class GaussianDiffusion(nn.Module):
     def p_sample_loop(self, model, shape, noise_fn=torch.randn):
 
         device = 'cuda' if next(model.parameters()).is_cuda else 'cpu'
-        img    = noise_fn(shape).to(device)
+        img = noise_fn(shape).to(device)
 
         for i in reversed(range(self.num_timesteps)):
             img = self.p_sample(
@@ -234,10 +231,9 @@ class GaussianDiffusion(nn.Module):
         img = noise_fn(shape, dtype=torch.float32).to(device)
 
         num_recorded_x0_pred = self.num_timesteps // include_x0_pred_freq
-        x0_preds_            = torch.zeros((shape[0], num_recorded_x0_pred, *shape[1:]), dtype=torch.float32).to(device)
+        x0_preds_ = torch.zeros((shape[0], num_recorded_x0_pred, *shape[1:]), dtype=torch.float32).to(device)
 
         for i in reversed(range(self.num_timesteps)):
-
             # Sample p(x_{t-1} | x_t) as usual
             img, pred_x0 = self.p_sample(model=model,
                                          x=img,
@@ -251,7 +247,7 @@ class GaussianDiffusion(nn.Module):
                                                                               device=device)
 
             insert_mask = insert_mask.to(torch.float32).view(1, num_recorded_x0_pred, *([1] * len(shape[1:])))
-            x0_preds_   = insert_mask * pred_x0[:, None, ...] + (1. - insert_mask) * x0_preds_
+            x0_preds_ = insert_mask * pred_x0[:, None, ...] + (1. - insert_mask) * x0_preds_
 
         return img, x0_preds_
 
@@ -260,9 +256,9 @@ class GaussianDiffusion(nn.Module):
     def _vb_terms_bpd(self, model, x_0, x_t, t, clip_denoised, return_pred_x0):
 
         batch_size = t.shape[0]
-        true_mean, _, true_log_variance_clipped    = self.q_posterior_mean_variance(x_0=x_0,
-                                                                                    x_t=x_t,
-                                                                                    t=t)
+        true_mean, _, true_log_variance_clipped = self.q_posterior_mean_variance(x_0=x_0,
+                                                                                 x_t=x_t,
+                                                                                 t=t)
         model_mean, _, model_log_variance, pred_x0 = self.p_mean_variance(model,
                                                                           x=x_t,
                                                                           t=t,
@@ -302,7 +298,7 @@ class GaussianDiffusion(nn.Module):
             }[self.model_mean_type]
 
             model_output = model(x_t, t)
-            losses       = torch.mean((target - model_output).view(x_0.shape[0], -1)**2, dim=1)
+            losses = torch.mean((target - model_output).view(x_0.shape[0], -1) ** 2, dim=1)
 
         else:
             raise NotImplementedError(self.loss_type)
@@ -311,15 +307,15 @@ class GaussianDiffusion(nn.Module):
 
     def _prior_bpd(self, x_0):
 
-        B, T                        = x_0.shape[0], self.num_timesteps
+        B, T = x_0.shape[0], self.num_timesteps
         qt_mean, _, qt_log_variance = self.q_mean_variance(x_0,
                                                            t=torch.full((B,), T - 1, dtype=torch.int64))
-        kl_prior                    = normal_kl(mean1=qt_mean,
-                                                logvar1=qt_log_variance,
-                                                mean2=torch.zeros_like(qt_mean),
-                                                logvar2=torch.zeros_like(qt_log_variance))
+        kl_prior = normal_kl(mean1=qt_mean,
+                             logvar1=qt_log_variance,
+                             mean2=torch.zeros_like(qt_mean),
+                             logvar2=torch.zeros_like(qt_log_variance))
 
-        return torch.mean(kl_prior.view(B, -1), dim=1)/np.log(2.)
+        return torch.mean(kl_prior.view(B, -1), dim=1) / np.log(2.)
 
     @torch.no_grad()
     def calc_bpd_loop(self, model, x_0, clip_denoised):
@@ -327,11 +323,10 @@ class GaussianDiffusion(nn.Module):
         (B, C, H, W), T = x_0.shape, self.num_timesteps
 
         new_vals_bt = torch.zeros((B, T))
-        new_mse_bt  = torch.zeros((B, T))
+        new_mse_bt = torch.zeros((B, T))
 
         for t in reversed(range(self.num_timesteps)):
-
-            t_b = torch.full((B, ), t, dtype=torch.int64)
+            t_b = torch.full((B,), t, dtype=torch.int64)
 
             # Calculate VLB term at the current timestep
             new_vals_b, pred_x0 = self._vb_terms_bpd(model=model,
@@ -342,13 +337,13 @@ class GaussianDiffusion(nn.Module):
                                                      return_pred_x0=True)
 
             # MSE for progressive prediction loss
-            new_mse_b = torch.mean((pred_x0-x_0).view(B, -1)**2, dim=1)
+            new_mse_b = torch.mean((pred_x0 - x_0).view(B, -1) ** 2, dim=1)
 
             # Insert the calculated term into the tensor of all terms
             mask_bt = (t_b[:, None] == torch.arange(T)[None, :]).to(torch.float32)
 
             new_vals_bt = new_vals_bt * (1. - mask_bt) + new_vals_b[:, None] * mask_bt
-            new_mse_bt  = new_mse_bt  * (1. - mask_bt) + new_mse_b[:, None] * mask_bt
+            new_mse_bt = new_mse_bt * (1. - mask_bt) + new_mse_b[:, None] * mask_bt
 
         prior_bpd_b = self._prior_bpd(x_0)
         total_bpd_b = torch.sum(new_vals_bt, dim=1) + prior_bpd_b

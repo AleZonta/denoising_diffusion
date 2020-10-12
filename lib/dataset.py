@@ -4,6 +4,9 @@ import torchvision.datasets
 import numpy as np
 from torch.utils.data import Subset
 
+from Audio.load import load
+
+
 class ReshapeTransform:
     def __init__(self, new_size):
         self.new_size = new_size
@@ -122,7 +125,8 @@ def get_train_data(conf):
 
         train_set = Subset(train_set, train_idx)
         valid_set = Subset(valid_set, valid_idx)
-
+    elif conf.dataset.name == "audio":
+        train_set, valid_set, _ = load(args=conf.audio)
     else:
         raise FileNotFoundError
 

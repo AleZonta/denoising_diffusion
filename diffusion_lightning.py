@@ -13,6 +13,7 @@ import lib.dataset as dataset
 from lib.diffusion import GaussianDiffusion, make_beta_schedule
 
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -21,9 +22,9 @@ class obj(object):
     def __init__(self, d):
         for a, b in d.items():
             if isinstance(b, (list, tuple)):
-               setattr(self, a, [obj(x) if isinstance(x, dict) else x for x in b])
+                setattr(self, a, [obj(x) if isinstance(x, dict) else x for x in b])
             else:
-               setattr(self, a, obj(b) if isinstance(b, dict) else b)
+                setattr(self, a, obj(b) if isinstance(b, dict) else b)
 
 
 def accumulate(model1, model2, decay=0.9999):
@@ -39,7 +40,7 @@ def samples_fn(model, diffusion, shape):
                                       shape=shape,
                                       noise_fn=torch.randn)
     return {
-      'samples': (samples + 1)/2
+        'samples': (samples + 1) / 2
     }
 
 
@@ -51,17 +52,17 @@ def progressive_samples_fn(model, diffusion, shape, device, include_x0_pred_freq
         device=device,
         include_x0_pred_freq=include_x0_pred_freq
     )
-    return {'samples': (samples + 1)/2, 'progressive_samples': (progressive_samples + 1)/2}
+    return {'samples': (samples + 1) / 2, 'progressive_samples': (progressive_samples + 1) / 2}
 
 
 def bpd_fn(model, diffusion, x):
     total_bpd_b, terms_bpd_bt, prior_bpd_b, mse_bt = diffusion.calc_bpd_loop(model=model, x_0=x, clip_denoised=True)
 
     return {
-      'total_bpd': total_bpd_b,
-      'terms_bpd': terms_bpd_bt,
-      'prior_bpd': prior_bpd_b,
-      'mse': mse_bt
+        'total_bpd': total_bpd_b,
+        'terms_bpd': terms_bpd_bt,
+        'prior_bpd': prior_bpd_b,
+        'mse': mse_bt
     }
 
 
@@ -71,7 +72,7 @@ def validate(val_loader, model, diffusion):
     mse = []
     with torch.no_grad():
         for i, (x, y) in enumerate(iter(val_loader)):
-            x       = x
+            x = x
             metrics = bpd_fn(model, diffusion, x)
 
             bpd.append(metrics['total_bpd'].view(-1, 1))
@@ -87,7 +88,7 @@ class DDP(pl.LightningModule):
     def __init__(self, conf):
         super().__init__()
 
-        self.conf  = conf
+        self.conf = conf
         self.save_hyperparameters()
 
         self.model = UNet(self.conf.model.in_channel,
@@ -97,16 +98,16 @@ class DDP(pl.LightningModule):
                           attn_strides=self.conf.model.attn_strides,
                           dropout=self.conf.model.dropout,
                           fold=self.conf.model.fold,
-                          )
+                          ).double()
 
-        self.ema   = UNet(self.conf.model.in_channel,
-                          self.conf.model.channel,
-                          channel_multiplier=self.conf.model.channel_multiplier,
-                          n_res_blocks=self.conf.model.n_res_blocks,
-                          attn_strides=self.conf.model.attn_strides,
-                          dropout=self.conf.model.dropout,
-                          fold=self.conf.model.fold,
-                          )
+        self.ema = UNet(self.conf.model.in_channel,
+                        self.conf.model.channel,
+                        channel_multiplier=self.conf.model.channel_multiplier,
+                        n_res_blocks=self.conf.model.n_res_blocks,
+                        attn_strides=self.conf.model.attn_strides,
+                        dropout=self.conf.model.dropout,
+                        fold=self.conf.model.fold,
+                        ).double()
 
         self.betas = make_beta_schedule(schedule=self.conf.model.schedule.type,
                                         start=self.conf.model.schedule.beta_start,
@@ -118,14 +119,10 @@ class DDP(pl.LightningModule):
                                            model_var_type=self.conf.model.var_type,
                                            loss_type=self.conf.model.loss_type)
 
-
-
     def setup(self, stage):
-
         self.train_set, self.valid_set = dataset.get_train_data(self.conf)
 
     def forward(self, x):
-
         return self.diffusion.p_sample_loop(self.model, x.shape)
 
     def configure_optimizers(self):
@@ -140,8 +137,8 @@ class DDP(pl.LightningModule):
     def training_step(self, batch, batch_nb):
 
         img, _ = batch
-        time   = (torch.rand(img.shape[0]) * 1000).type(torch.int64).to(img.device)
-        loss   = self.diffusion.training_losses(self.model, img, time).mean()
+        time = (torch.rand(img.shape[0]) * 1000).type(torch.int64).to(img.device)
+        loss = self.diffusion.training_losses(self.model, img, time).mean()
 
         accumulate(self.ema, self.model.module if isinstance(self.model, nn.DataParallel) else self.model, 0.9999)
 
@@ -163,25 +160,27 @@ class DDP(pl.LightningModule):
     def validation_step(self, batch, batch_nb):
 
         img, _ = batch
-        time   = (torch.rand(img.shape[0]) * 1000).type(torch.int64).to(img.device)
-        loss   = self.diffusion.training_losses(self.ema, img, time).mean()
+        time = (torch.rand(img.shape[0]) * 1000).type(torch.int64).to(img.device)
+        loss = self.diffusion.training_losses(self.ema, img, time).mean()
 
         return {'val_loss': loss}
 
     def validation_epoch_end(self, outputs):
 
-        avg_loss         = torch.stack([x['val_loss'] for x in outputs]).mean()
+        avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
         tensorboard_logs = {'val_loss': avg_loss}
 
-        shape  = (16, 3, self.conf.dataset.resolution, self.conf.dataset.resolution)
+        shape = (16, 3, self.conf.dataset.resolution, self.conf.dataset.resolution)
         sample = progressive_samples_fn(self.ema, self.diffusion, shape, device='cuda' if self.on_gpu else 'cpu')
 
         grid = make_grid(sample['samples'], nrow=4)
-        self.logger.experiment.add_image(f'generated_images', grid, self.current_epoch)
+        self.logger.experiment.add_image('generated_images', grid, self.current_epoch)
 
-        grid = make_grid(sample['progressive_samples'].reshape(-1, 3, self.conf.dataset.resolution, self.conf.dataset.resolution), nrow=20)
-        self.logger.experiment.add_image(f'progressive_generated_images', grid, self.current_epoch)
-        
+        grid = make_grid(
+            sample['progressive_samples'].reshape(-1, 3, self.conf.dataset.resolution, self.conf.dataset.resolution),
+            nrow=20)
+        self.logger.experiment.add_image('progressive_generated_images', grid, self.current_epoch)
+
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def val_dataloader(self):
@@ -196,7 +195,6 @@ class DDP(pl.LightningModule):
 
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", action="store_true", default=False, help="Training or evaluation?")
     parser.add_argument("--config", type=str, required=True, help="Path to config.")
@@ -243,7 +241,7 @@ if __name__ == "__main__":
         trainer.fit(denoising_diffusion_model)
 
     else:
-        
+
         denoising_diffusion_model.cuda()
         state_dict = torch.load(args.model_dir)
         denoising_diffusion_model.load_state_dict(state_dict['state_dict'])
@@ -259,11 +257,9 @@ if __name__ == "__main__":
             os.mkdir(args.sample_dir)
 
         for i in range(args.n_samples):
-
             img = sample['samples'][i]
-            plt.imsave(os.path.join(args.sample_dir, f'sample_{i}.png'), img.cpu().numpy().transpose(1, 2, 0))
+            plt.imsave(os.path.join(args.sample_dir, 'sample_{}.png'.format(i)), img.cpu().numpy().transpose(1, 2, 0))
 
             img = sample['progressive_samples'][i]
             img = make_grid(img, nrow=args.prog_sample_freq)
-            plt.imsave(os.path.join(args.sample_dir, f'prog_sample_{i}.png'), img.cpu().numpy().transpose(1, 2, 0))
-
+            plt.imsave(os.path.join(args.sample_dir, 'prog_sample_{}.png'.format(i)), img.cpu().numpy().transpose(1, 2, 0))

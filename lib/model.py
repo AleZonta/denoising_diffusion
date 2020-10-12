@@ -250,6 +250,11 @@ class UNet(nn.Module):
             linear(time_dim, time_dim),
         )
 
+        self.time_one = TimeEmbedding(channel)
+        self.time_two = linear(channel, time_dim)
+        self.time_three = Swish()
+        self.time_four = linear(time_dim, time_dim)
+
         down_layers   = [conv2d(in_channel * (fold ** 2), channel, 3, padding=1)]
         feat_channels = [channel]
         in_channel    = channel
@@ -320,11 +325,18 @@ class UNet(nn.Module):
         )
 
     def forward(self, input, time):
-        time_embed = self.time(time)
+        # time_embed = self.time(time)
+        time = time.double()
+        out = self.time_one(time).double()
+        out = self.time_two(out).double()
+        out = self.time_three(out).double()
+        time_embed = self.time_four(out).double()
+
+
 
         feats = []
 
-        out = spatial_fold(input, self.fold)
+        out = spatial_fold(input, self.fold).double()
         for layer in self.down:
             if isinstance(layer, ResBlockWithAttention):
                 out = layer(out, time_embed)
